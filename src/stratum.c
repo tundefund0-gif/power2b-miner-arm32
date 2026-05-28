@@ -241,19 +241,29 @@ static int read_sock(stratum_ctx *ctx, int timeout_ms) {
 }
 
 int stratum_read_line(stratum_ctx *ctx, char *buf, int bufsize, int timeout_ms) {
-    char *nl = strchr(ctx->recv_buf, '\n');
+    char *nl = NULL;
+    if (ctx->recv_len > 0) {
+        ctx->recv_buf[ctx->recv_len] = '\0';
+        nl = strchr(ctx->recv_buf, '\n');
+    }
     if (!nl && timeout_ms > 0) {
         int ret = read_sock(ctx, timeout_ms);
         if (ret <= 0) return ret;
+        ctx->recv_buf[ctx->recv_len] = '\0';
         nl = strchr(ctx->recv_buf, '\n');
     }
     if (nl) {
         int len = nl - ctx->recv_buf;
+        if (len > ctx->recv_len) len = ctx->recv_len;
         if (len >= bufsize) len = bufsize - 1;
         memcpy(buf, ctx->recv_buf, len);
         buf[len] = '\0';
-        memmove(ctx->recv_buf, nl + 1, ctx->recv_len - len - 1);
+        int remaining = ctx->recv_len - len - 1;
+        if (remaining > 0) {
+            memmove(ctx->recv_buf, nl + 1, remaining);
+        }
         ctx->recv_len -= (len + 1);
+        ctx->recv_buf[ctx->recv_len > 0 ? ctx->recv_len : 0] = '\0';
         return len;
     }
     return 0;
