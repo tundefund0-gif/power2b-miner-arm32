@@ -1,5 +1,6 @@
 *.o
+/tmp/
 power2b-miner
+power2b-miner*
 power2b-miner-arm
 reference/
-/tmp/

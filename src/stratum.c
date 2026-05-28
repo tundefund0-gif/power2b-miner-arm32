@@ -47,20 +47,22 @@ void hex_encode(const uint8_t *data, int len, char *out) {
 
 void difficulty_to_target(double diff, uint8_t target[32]) {
     memset(target, 0, 32);
-    if (diff < 1.0) diff = 1.0;
-    uint64_t m = 0x00FFFF0000000000ULL;
-    double d = (double)m / diff;
-    uint64_t val = (uint64_t)d;
-    for (int i = 7; i >= 0; i--) {
-        target[31 - i] = val & 0xff;
-        val >>= 8;
-    }
+    if (diff < 0.001) diff = 0.001;
+    uint64_t M = (uint64_t)(65535.0 / diff + 0.5);
+    uint8_t bytes[8];
+    int n = 0;
+    uint64_t tmp = M;
+    while (tmp) { bytes[n++] = tmp & 0xFF; tmp >>= 8; }
+    if (n > 6) n = 6;
+    int base = 5 - n + 1;
+    for (int i = 0; i < n; i++)
+        target[base + i] = bytes[n - 1 - i];
 }
 
 int check_share(const uint8_t hash[32], const uint8_t target[32]) {
-    for (int i = 31; i >= 0; i--) {
-        if (hash[i] < target[i]) return 1;
+    for (int i = 0; i < 32; i++) {
         if (hash[i] > target[i]) return 0;
+        if (hash[i] < target[i]) return 1;
     }
     return 1;
 }
