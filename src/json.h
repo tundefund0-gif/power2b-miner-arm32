@@ -10,6 +10,7 @@ typedef struct {
     int start;
     int end;
     int size;
+    int parent;
 } json_token;
 
 typedef struct {

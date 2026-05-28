@@ -3,11 +3,13 @@
 #include <ctype.h>
 #include "json.h"
 
-static int json_parse_value(json_parser *p, int *i, json_token *t) {
-    while (isspace(p->text[*i])) (*i)++;
+static int json_parse_value(json_parser *p, int *i, json_token *t, int parent_idx) {
+    while (isspace((unsigned char)p->text[*i])) (*i)++;
     if (*i >= (int)strlen(p->text)) return -1;
-    
+
     t->start = *i;
+    t->parent = parent_idx;
+
     switch (p->text[*i]) {
         case '"': {
             t->type = JSON_STRING;
@@ -24,21 +26,22 @@ static int json_parse_value(json_parser *p, int *i, json_token *t) {
         case '{': {
             t->type = JSON_OBJECT;
             t->size = 0;
+            int tok_idx = t - p->tokens;
             (*i)++;
             while (1) {
-                while (isspace(p->text[*i])) (*i)++;
+                while (isspace((unsigned char)p->text[*i])) (*i)++;
                 if (p->text[*i] == '}') { (*i)++; break; }
                 if (p->num_tokens >= JSON_MAX_TOKENS) return -1;
                 json_token *key = &p->tokens[p->num_tokens++];
-                if (json_parse_value(p, i, key) < 0) return -1;
-                while (isspace(p->text[*i])) (*i)++;
+                if (json_parse_value(p, i, key, tok_idx) < 0) return -1;
+                while (isspace((unsigned char)p->text[*i])) (*i)++;
                 if (p->text[*i] != ':') return -1;
                 (*i)++;
                 if (p->num_tokens >= JSON_MAX_TOKENS) return -1;
                 json_token *val = &p->tokens[p->num_tokens++];
-                if (json_parse_value(p, i, val) < 0) return -1;
+                if (json_parse_value(p, i, val, tok_idx) < 0) return -1;
                 t->size++;
-                while (isspace(p->text[*i])) (*i)++;
+                while (isspace((unsigned char)p->text[*i])) (*i)++;
                 if (p->text[*i] == ',') (*i)++;
                 else if (p->text[*i] == '}') { (*i)++; break; }
                 else return -1;
@@ -49,15 +52,16 @@ static int json_parse_value(json_parser *p, int *i, json_token *t) {
         case '[': {
             t->type = JSON_ARRAY;
             t->size = 0;
+            int tok_idx = t - p->tokens;
             (*i)++;
             while (1) {
-                while (isspace(p->text[*i])) (*i)++;
+                while (isspace((unsigned char)p->text[*i])) (*i)++;
                 if (p->text[*i] == ']') { (*i)++; break; }
                 if (p->num_tokens >= JSON_MAX_TOKENS) return -1;
                 json_token *val = &p->tokens[p->num_tokens++];
-                if (json_parse_value(p, i, val) < 0) return -1;
+                if (json_parse_value(p, i, val, tok_idx) < 0) return -1;
                 t->size++;
-                while (isspace(p->text[*i])) (*i)++;
+                while (isspace((unsigned char)p->text[*i])) (*i)++;
                 if (p->text[*i] == ',') (*i)++;
                 else if (p->text[*i] == ']') { (*i)++; break; }
                 else return -1;
@@ -87,18 +91,18 @@ static int json_parse_value(json_parser *p, int *i, json_token *t) {
             break;
         }
         default: {
-            if (p->text[*i] == '-' || isdigit(p->text[*i])) {
+            if (p->text[*i] == '-' || isdigit((unsigned char)p->text[*i])) {
                 t->type = JSON_NUMBER;
                 if (p->text[*i] == '-') (*i)++;
-                while (isdigit(p->text[*i])) (*i)++;
+                while (isdigit((unsigned char)p->text[*i])) (*i)++;
                 if (p->text[*i] == '.') {
                     (*i)++;
-                    while (isdigit(p->text[*i])) (*i)++;
+                    while (isdigit((unsigned char)p->text[*i])) (*i)++;
                 }
                 if (p->text[*i] == 'e' || p->text[*i] == 'E') {
                     (*i)++;
                     if (p->text[*i] == '+' || p->text[*i] == '-') (*i)++;
-                    while (isdigit(p->text[*i])) (*i)++;
+                    while (isdigit((unsigned char)p->text[*i])) (*i)++;
                 }
                 t->end = *i;
             } else {
@@ -114,21 +118,23 @@ int json_parse(json_parser *p, char *text) {
     p->text = text;
     p->num_tokens = 1;
     int i = 0;
-    return json_parse_value(p, &i, &p->tokens[0]);
+    return json_parse_value(p, &i, &p->tokens[0], -1);
 }
 
 json_token *json_get_key(json_parser *p, json_token *obj, const char *key) {
     if (!obj || obj->type != JSON_OBJECT) return NULL;
-    int idx = 1;
-    for (int i = 0; i < obj->size; i++) {
-        json_token *k = &p->tokens[obj->start + idx];
-        json_token *v = &p->tokens[obj->start + idx + 1];
-        if (k->type == JSON_STRING) {
-            int len = k->end - k->start - 2;
-            if (strncmp(&p->text[k->start + 1], key, len) == 0 && (int)strlen(key) == len)
-                return v;
-        }
-        idx += 2;
+    int obj_idx = obj - p->tokens;
+    for (int i = 0; i < p->num_tokens; i++) {
+        json_token *t = &p->tokens[i];
+        if (t->parent != obj_idx) continue;
+        if (t->type != JSON_STRING) continue;
+        if (i + 1 >= p->num_tokens) return NULL;
+        json_token *v = &p->tokens[i + 1];
+        if (v->parent != obj_idx) continue;
+        int len = t->end - t->start - 2;
+        if (len > 0 && strncmp(&p->text[t->start + 1], key, len) == 0 &&
+            (int)strlen(key) == len)
+            return v;
     }
     return NULL;
 }
@@ -136,7 +142,15 @@ json_token *json_get_key(json_parser *p, json_token *obj, const char *key) {
 json_token *json_get_index(json_parser *p, json_token *arr, int index) {
     if (!arr || arr->type != JSON_ARRAY) return NULL;
     if (index < 0 || index >= arr->size) return NULL;
-    return &p->tokens[arr->start + 1 + index];
+    int arr_idx = arr - p->tokens;
+    int count = 0;
+    for (int i = 0; i < p->num_tokens; i++) {
+        if (p->tokens[i].parent == arr_idx) {
+            if (count == index) return &p->tokens[i];
+            count++;
+        }
+    }
+    return NULL;
 }
 
 const char *json_string_val(json_parser *p, json_token *t) {
